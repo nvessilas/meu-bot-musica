@@ -22,6 +22,7 @@ ydl_opts = {
     'ffmpeg_location': './ffmpeg',        # <--- O SEGREDO ESTÁ AQUI (FFmpeg portátil)
     'outtmpl': '/tmp/%(title)s.%(ext)s',  # Pasta temporária do Linux
     'noplaylist': True,
+    'cookiefile': '/etc/secrets/cookies.txt',
 }
 
 async def baixar_audio(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -57,3 +58,4 @@ if __name__ == '__main__':
         application.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), baixar_audio))
         print("Bot iniciado no Render...")
         application.run_polling()
+
