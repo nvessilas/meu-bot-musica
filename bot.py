@@ -21,6 +21,7 @@ if os.path.exists(cookie_secreto):
     logging.info("Cookies copiados com sucesso para a pasta temporária!")
 
 # Configurações do motor de download para Linux/Render
+# Configurações do motor de download para Linux/Render
 ydl_opts = {
     'format': 'bestaudio/best',
     'postprocessors': [{
@@ -31,7 +32,8 @@ ydl_opts = {
     'ffmpeg_location': './ffmpeg',
     'outtmpl': '/tmp/%(title)s.%(ext)s',
     'noplaylist': True,
-    'cookiefile': cookie_livre,  # <--- Agora ele usa o arquivo livre!
+    # O TRUQUE MÁGICO: Disfarça o bot de um celular Android para pular o bloqueio
+    'extractor_args': {'youtube': {'client': ['android']}}, 
 }
 
 async def baixar_audio(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -67,3 +69,4 @@ if __name__ == '__main__':
         application.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), baixar_audio))
         print("Bot iniciado no Render com suporte a Cookies!")
         application.run_polling()
+
