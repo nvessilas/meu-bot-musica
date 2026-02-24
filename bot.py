@@ -8,7 +8,7 @@ from telegram.ext import ApplicationBuilder, ContextTypes, MessageHandler, filte
 # Configuração de Logs para você ver o que acontece no painel do Render
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 
-# O Render vai injetar o Token aqui automaticamente depois
+# O Render vai injetar o Token aqui automaticamente
 TOKEN = os.environ.get('TELEGRAM_TOKEN')
 
 # Configurações do motor de download para Linux/Render
@@ -19,6 +19,7 @@ ydl_opts = {
         'preferredcodec': 'mp3',
         'preferredquality': '192',
     }],
+    'ffmpeg_location': './ffmpeg',        # <--- O SEGREDO ESTÁ AQUI (FFmpeg portátil)
     'outtmpl': '/tmp/%(title)s.%(ext)s',  # Pasta temporária do Linux
     'noplaylist': True,
 }
