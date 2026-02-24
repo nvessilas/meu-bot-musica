@@ -1,76 +1,62 @@
 import os
 import logging
-from yt_dlp import YoutubeDL
+import httpx
 from telegram import Update
 from telegram.ext import ApplicationBuilder, ContextTypes, MessageHandler, filters
 
 # Configuração de Logs
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
-
 TOKEN = os.environ.get('TELEGRAM_TOKEN')
-
-# Configuração base (sem os disfarces ainda)
-base_ydl_opts = {
-    'format': 'm4a/bestaudio/best',
-    'postprocessors': [{
-        'key': 'FFmpegExtractAudio',
-        'preferredcodec': 'mp3',
-        'preferredquality': '192',
-    }],
-    'ffmpeg_location': './ffmpeg',
-    'outtmpl': '/tmp/%(title)s.%(ext)s',
-    'noplaylist': True,
-}
-
-# A SUA IDEIA AQUI: Nossa lista de métodos/disfarces para tentar um por um
-estrategias = [
-    {'youtube': {'client': ['android_vr']}},  # Tentativa 1: Óculos VR
-    {'youtube': {'client': ['tv']}},          # Tentativa 2: Smart TV
-    {'youtube': {'client': ['android']}},     # Tentativa 3: Celular Android
-    {'youtube': {'client': ['ios']}},         # Tentativa 4: iPhone
-    {'youtube': {'client': ['web']}},         # Tentativa 5: PC Normal
-]
 
 async def baixar_audio(update: Update, context: ContextTypes.DEFAULT_TYPE):
     url = update.message.text
     if "youtube.com" in url or "youtu.be" in url:
-        msg_espera = await update.message.reply_text("⏳ Aplicando vários métodos para baixar... Aguarde.")
+        msg_espera = await update.message.reply_text("⏳ Acionando o Plano C (Servidor Auxiliar)... Aguarde.")
         
-        sucesso = False
-        
-        # O bot vai testar cada método da nossa lista
-        for i, estrategia in enumerate(estrategias):
-            try:
-                logging.info(f"Tentando método {i+1}...")
+        try:
+            # Configurações para pedir a música ao Cobalt
+            headers = {
+                "Accept": "application/json",
+                "Content-Type": "application/json",
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
+            }
+            payload = {
+                "url": url,
+                "isAudioOnly": True,
+                "aFormat": "mp3"
+            }
+            
+            # Usando httpx (já incluído no telegram-bot) para fazer o pedido
+            async with httpx.AsyncClient(timeout=120.0) as client:
+                logging.info("Enviando pedido para o Cobalt API...")
+                resposta = await client.post("https://api.cobalt.tools/", json=payload, headers=headers)
+                dados = resposta.json()
                 
-                # Junta a configuração base com o método atual da lista
-                opts_atuais = base_ydl_opts.copy()
-                opts_atuais['extractor_args'] = estrategia
-                
-                with YoutubeDL(opts_atuais) as ydl:
-                    info = ydl.extract_info(url, download=True)
-                    filename = ydl.prepare_filename(info).rsplit('.', 1)[0] + ".mp3"
-                
-                # Se chegou nesta linha, significa que O DOWNLOAD FUNCIONOU!
-                await update.message.reply_audio(audio=open(filename, 'rb'), title=info.get('title'))
-                
-                # Limpa o arquivo
-                if os.path.exists(filename):
-                    os.remove(filename)
+                # Se o Cobalt retornou o link direto do MP3
+                if "url" in dados:
+                    url_audio = dados["url"]
+                    arquivo_temp = "/tmp/musica.mp3"
                     
-                sucesso = True
-                break  # O comando "break" faz o bot parar de tentar, pois já deu certo!
-                
-            except Exception as e:
-                # Se deu erro, ele apenas avisa no log secreto do Render e vai para a próxima tentativa
-                logging.warning(f"Método {i+1} bloqueado pelo YouTube. Tentando o próximo...")
-                continue
-        
-        await msg_espera.delete()
-        
-        # Se esgotou todas as tentativas e nenhum funcionou
-        if not sucesso:
-            await update.message.reply_text("❌ O YouTube bloqueou absolutamente todos os nossos métodos hoje. Tente outro link!")
+                    # Baixa o MP3 do Cobalt para o Render
+                    logging.info("Baixando o arquivo do Cobalt...")
+                    req_audio = await client.get(url_audio)
+                    with open(arquivo_temp, "wb") as f:
+                        f.write(req_audio.content)
+                    
+                    # Envia o MP3 para você no Telegram
+                    await update.message.reply_audio(audio=open(arquivo_temp, 'rb'))
+                    await msg_espera.delete()
+                    
+                    # Limpa o arquivo do servidor
+                    os.remove(arquivo_temp)
+                    logging.info("Música enviada com sucesso pelo Plano C!")
+                else:
+                    erro = dados.get('text', 'Erro desconhecido')
+                    await update.message.reply_text(f"❌ O servidor auxiliar encontrou um problema: {erro}")
+                    
+        except Exception as e:
+            logging.error(f"Erro no Plano C: {e}")
+            await update.message.reply_text(f"❌ Falha no Plano C: {str(e)}")
             
     else:
         await update.message.reply_text("Pode mandar o link do YouTube! 🎵")
@@ -81,5 +67,5 @@ if __name__ == '__main__':
     else:
         application = ApplicationBuilder().token(TOKEN).build()
         application.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), baixar_audio))
-        print("Bot iniciado com Estratégia de Múltiplas Tentativas!")
+        print("Bot iniciado com o Plano C (Cobalt API)!")
         application.run_polling()
