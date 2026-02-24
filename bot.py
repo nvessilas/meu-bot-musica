@@ -1,15 +1,24 @@
 import os
+import shutil
 import logging
 import asyncio
 from yt_dlp import YoutubeDL
 from telegram import Update
 from telegram.ext import ApplicationBuilder, ContextTypes, MessageHandler, filters
 
-# Configuração de Logs para você ver o que acontece no painel do Render
+# Configuração de Logs
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 
 # O Render vai injetar o Token aqui automaticamente
 TOKEN = os.environ.get('TELEGRAM_TOKEN')
+
+# TRUQUE DO COOKIE: Copia da pasta bloqueada para a pasta livre
+cookie_secreto = '/etc/secrets/cookies.txt'
+cookie_livre = '/tmp/cookies.txt'
+
+if os.path.exists(cookie_secreto):
+    shutil.copyfile(cookie_secreto, cookie_livre)
+    logging.info("Cookies copiados com sucesso para a pasta temporária!")
 
 # Configurações do motor de download para Linux/Render
 ydl_opts = {
@@ -19,10 +28,10 @@ ydl_opts = {
         'preferredcodec': 'mp3',
         'preferredquality': '192',
     }],
-    'ffmpeg_location': './ffmpeg',        # <--- O SEGREDO ESTÁ AQUI (FFmpeg portátil)
-    'outtmpl': '/tmp/%(title)s.%(ext)s',  # Pasta temporária do Linux
+    'ffmpeg_location': './ffmpeg',
+    'outtmpl': '/tmp/%(title)s.%(ext)s',
     'noplaylist': True,
-    'cookiefile': '/etc/secrets/cookies.txt',
+    'cookiefile': cookie_livre,  # <--- Agora ele usa o arquivo livre!
 }
 
 async def baixar_audio(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -56,6 +65,5 @@ if __name__ == '__main__':
     else:
         application = ApplicationBuilder().token(TOKEN).build()
         application.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), baixar_audio))
-        print("Bot iniciado no Render...")
+        print("Bot iniciado no Render com suporte a Cookies!")
         application.run_polling()
-
