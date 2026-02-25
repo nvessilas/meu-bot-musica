@@ -10,7 +10,6 @@ from telegram.ext import ApplicationBuilder, ContextTypes, MessageHandler, Comma
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 TOKEN = os.environ.get('TELEGRAM_TOKEN')
 
-# Configuração base do motor de download
 ydl_opts_base = {
     'format': 'bestaudio/best',
     'postprocessors': [{
@@ -23,9 +22,14 @@ ydl_opts_base = {
     'noplaylist': True,
 }
 
+# A ROLETA: Lista de servidores alternativos para tentar driblar o YouTube
+servidores_cobalt = [
+    "https://api.cobalt.tools",
+    "https://api.cobalt.q-n.space",
+    "https://co.wuk.sh"
+]
+
 def limpar_titulo(titulo_sujo):
-    """Apaga os lixos do título do YouTube (tudo depois de traços ou parênteses)"""
-    # Exemplo: "Junto a Ti - Graduação 2025" vira "Junto a Ti"
     titulo_limpo = re.split(r'[-|\[\(]', titulo_sujo)[0].strip()
     return titulo_limpo if titulo_limpo else titulo_sujo
 
@@ -35,27 +39,40 @@ async def processar_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Mande um link do YouTube ou digite /buscar seguido do nome da música! 🎵")
         return
 
-    msg_espera = await update.message.reply_text("⏳ Iniciando a Busca Implacável...")
+    msg_espera = await update.message.reply_text("⏳ Roleta de Servidores ativada! Tentando baixar o vídeo original...")
 
-    # 1. Tenta baixar o vídeo original direto do YouTube (Modo Kamikaze com TV client)
+    # 1. Tenta a Roleta (O melhor para os seus vídeos de teclado/oração)
     try:
-        opts_direto = ydl_opts_base.copy()
-        opts_direto['extractor_args'] = {'youtube': {'client': ['tv']}}
-        logging.info("Tentativa 1: YouTube Direto")
+        payload = {"url": url, "isAudioOnly": True, "aFormat": "mp3"}
+        headers = {"Accept": "application/json", "Content-Type": "application/json"}
         
-        with YoutubeDL(opts_direto) as ydl:
-            info = ydl.extract_info(url, download=True)
-            filename = ydl.prepare_filename(info).rsplit('.', 1)[0] + ".mp3"
-            
-        await update.message.reply_audio(audio=open(filename, 'rb'), title=info.get('title'))
-        os.remove(filename)
-        await msg_espera.delete()
-        return
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            for api in servidores_cobalt:
+                try:
+                    logging.info(f"Tentando servidor: {api}")
+                    resp = await client.post(api, json=payload, headers=headers)
+                    if resp.status_code == 200 and "url" in resp.json():
+                        url_direta = resp.json()["url"]
+                        
+                        await msg_espera.edit_text("✅ Servidor secreto encontrou! Baixando o áudio original...")
+                        arquivo_temp = f"/tmp/musica_{update.message.message_id}.mp3"
+                        
+                        req_audio = await client.get(url_direta, timeout=60.0)
+                        with open(arquivo_temp, "wb") as f:
+                            f.write(req_audio.content)
+                        
+                        await update.message.reply_audio(audio=open(arquivo_temp, 'rb'))
+                        os.remove(arquivo_temp)
+                        await msg_espera.delete()
+                        return # Sucesso! Para o código aqui.
+                except Exception as e:
+                    logging.warning(f"Servidor {api} falhou. Tentando o próximo...")
     except Exception as e:
-        logging.warning("YouTube bloqueou. Indo para o Truque do Espelho Inteligente.")
+        logging.error(f"Roleta falhou: {e}")
 
-    # 2. Se o YouTube bloqueou, usa o Truque do Espelho com o "Limpador de Títulos"
+    # 2. Se a roleta falhar, tenta o Truque do Espelho como última esperança
     try:
+        await msg_espera.edit_text("⏳ YouTube bloqueou os servidores. Tentando o Truque do Espelho...")
         api_oembed = f"https://www.youtube.com/oembed?url={url}&format=json"
         async with httpx.AsyncClient() as client:
             resp = await client.get(api_oembed)
@@ -68,10 +85,13 @@ async def processar_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 busca_sc = f"scsearch1:{titulo_limpo}"
                 with YoutubeDL(ydl_opts_base) as ydl:
                     info = ydl.extract_info(busca_sc, download=True)
+                    
+                    # CORREÇÃO DO BUG AQUI TAMBÉM!
                     if 'entries' in info and len(info['entries']) > 0:
                         info_musica = info['entries'][0]
                     else:
-                        info_musica = info
+                        await msg_espera.edit_text("❌ Não encontrei esse áudio em nenhum lugar. É muito específico! 😭")
+                        return
                         
                     filename = ydl.prepare_filename(info_musica).rsplit('.', 1)[0] + ".mp3"
 
@@ -82,43 +102,36 @@ async def processar_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         logging.error(f"Erro no Espelho Limpo: {e}")
 
-    # 3. Se tudo falhar, sugere a busca manual
-    aviso_falha = (
-        "❌ O link automático falhou (O nome estava muito confuso ou foi bloqueado).\n\n"
-        "Mas não se preocupe! Tente pesquisar o nome da música manualmente. Digite:\n\n"
-        "`/buscar Nome da Música`"
-    )
-    await msg_espera.edit_text(aviso_falha, parse_mode='Markdown')
+    # 3. Se tudo der errado
+    await msg_espera.edit_text("❌ Todos os métodos falharam hoje. O YouTube bloqueou tudo.")
 
-# --- PARTE NOVA: O MODO INTERATIVO DE BUSCA ---
 
 async def comando_buscar(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # Junta todas as palavras que o usuário digitou depois do /buscar
     pesquisa = " ".join(context.args)
     if not pesquisa:
-        await update.message.reply_text("⚠️ Você esqueceu o nome da música! Digite assim:\n`/buscar Tudo é Perda`", parse_mode='Markdown')
+        await update.message.reply_text("⚠️ Você esqueceu o nome da música! Digite assim:\n`/buscar Nome da Música`", parse_mode='Markdown')
         return
 
     msg_espera = await update.message.reply_text(f"🔍 Procurando por '{pesquisa}'...")
 
     try:
-        # Busca a música SEM baixar ainda (download=False)
         busca_sc = f"scsearch1:{pesquisa}"
         with YoutubeDL({'format': 'bestaudio/best', 'noplaylist': True}) as ydl:
             info = ydl.extract_info(busca_sc, download=False)
+            
+            # CORREÇÃO DO BUG PRINCIPAL DO PAPAGAIO!
             if 'entries' in info and len(info['entries']) > 0:
                 info_musica = info['entries'][0]
             else:
-                info_musica = info
+                await msg_espera.edit_text("❌ Poxa, não encontrei nenhuma música com esse nome. Tente usar outras palavras ou nomes mais simples!")
+                return
 
         titulo_encontrado = info_musica.get('title')
         url_da_musica = info_musica.get('webpage_url') or info_musica.get('url')
 
-        # Salva a música na "memória" do bot
         context.user_data['musica_url'] = url_da_musica
         context.user_data['musica_titulo'] = titulo_encontrado
 
-        # Cria os botões na tela
         botoes = [
             [InlineKeyboardButton("✅ SIM, PODE BAIXAR", callback_data="baixar_sim")],
             [InlineKeyboardButton("❌ NÃO, TENTAR OUTRA", callback_data="baixar_nao")]
@@ -132,11 +145,12 @@ async def comando_buscar(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
     except Exception as e:
         logging.error(f"Erro na busca manual: {e}")
-        await msg_espera.edit_text("❌ Não encontrei nenhuma música com esse exato nome. Tente usar outras palavras!")
+        await msg_espera.edit_text("❌ Erro ao pesquisar no servidor.")
+
 
 async def responder_botoes(update: Update, context: ContextTypes.DEFAULT_TYPE):
     clique = update.callback_query
-    await clique.answer() # Avisa o Telegram que recebemos o clique
+    await clique.answer()
 
     if clique.data == "baixar_nao":
         await clique.edit_message_text("Ok, cancelei! Use `/buscar` com outro nome para tentarmos de novo.")
@@ -153,28 +167,25 @@ async def responder_botoes(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await clique.edit_message_text(f"⬇️ Baixando: *{titulo}*...\nIsso pode levar alguns segundos.", parse_mode='Markdown')
 
         try:
-            # Baixa a música que estava na memória
             with YoutubeDL(ydl_opts_base) as ydl:
                 info = ydl.extract_info(url, download=True)
                 filename = ydl.prepare_filename(info).rsplit('.', 1)[0] + ".mp3"
 
             await clique.message.reply_audio(audio=open(filename, 'rb'), title=titulo)
             os.remove(filename)
-            await clique.message.delete() # Apaga a mensagem de "Baixando..."
+            await clique.message.delete()
         except Exception as e:
             logging.error(f"Erro no botão baixar: {e}")
             await clique.edit_message_text("❌ Erro na hora de fazer o download do arquivo.")
+
 
 if __name__ == '__main__':
     if not TOKEN:
         print("ERRO: Variável TELEGRAM_TOKEN não encontrada!")
     else:
         application = ApplicationBuilder().token(TOKEN).build()
-        
-        # O bot agora entende Mensagens normais, Comandos (/buscar) e Cliques nos botões!
         application.add_handler(CommandHandler("buscar", comando_buscar))
         application.add_handler(CallbackQueryHandler(responder_botoes))
         application.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), processar_link))
-        
-        print("Bot Canivete Suíço Iniciado com Sucesso!")
+        print("Bot Iniciado com Roleta e Anti-Papagaio!")
         application.run_polling()
